@@ -1,0 +1,401 @@
+diff --git a/arch/arm/configs/viskan_huashan_ct_defconfig b/arch/arm/configs/viskan_huashan_ct_defconfig
+index e6eb60c..e13e218 100644
+--- a/arch/arm/configs/viskan_huashan_ct_defconfig
++++ b/arch/arm/configs/viskan_huashan_ct_defconfig
+@@ -449,6 +449,7 @@ CONFIG_USB_GADGET=y
+ CONFIG_USB_GADGET_DEBUG_FILES=y
+ CONFIG_USB_CI13XXX_MSM=y
+ CONFIG_USB_G_ANDROID=y
++CONFIG_USB_ANDROID_HID=y
+ CONFIG_USB_ANDROID_RMNET_CTRL_SMD=y
+ CONFIG_USB_ANDROID_NCM=y
+ CONFIG_USB_MIRRORLINK=y
+diff --git a/drivers/usb/gadget/Kconfig b/drivers/usb/gadget/Kconfig
+index 7784000..f2bc99f 100644
+--- a/drivers/usb/gadget/Kconfig
++++ b/drivers/usb/gadget/Kconfig
+@@ -1132,6 +1132,17 @@ config USB_ANDROID_RMNET_CTRL_SMD
+ 	 transfers. This option enables only control interface.
+ 	 Data interface used is BAM.
+ 
++config USB_ANDROID_HID
++       boolean "The HID gadget driver provides generic emulation of USB Human Interface Devices (HID)"
++       depends on USB_G_ANDROID
++       default n
++       help
++          The HID gadget driver provides generic emulation of USB
++	  Human Interface Devices (HID).
++
++	  For more information, see Documentation/usb/gadget_hid.txt which
++	  includes sample code for accessing the device files.
++
+ config USB_ANDROID_NCM
+        boolean "Gadget driver for NCM, Network Control Model"
+        depends on USB_G_ANDROID
+diff --git a/drivers/usb/gadget/android.c b/drivers/usb/gadget/android.c
+index 244ede3..9d8ab00 100644
+--- a/drivers/usb/gadget/android.c
++++ b/drivers/usb/gadget/android.c
+@@ -67,6 +67,9 @@
+ #include "f_serial.c"
+ #include "f_acm.c"
+ #include "f_adb.c"
++#ifdef CONFIG_USB_ANDROID_HID
++#include "f_hid.c"
++#endif
+ #include "f_ccid.c"
+ #include "f_mtp.c"
+ #include "f_accessory.c"
+@@ -452,6 +455,192 @@ static void adb_closed_callback(void)
+ 	}
+ }
+ 
++/*-----------------------------hid keyboard-------------------------*/
++
++/* static struct hidg_func_descriptor keyboard_hid_data = { */
++/* 	.subclass		= 0, /\* No subclass *\/ */
++/* 	.protocol		= 1, /\* Keyboard *\/ */
++/* 	.report_length		= 8, */
++/* 	.report_desc_length	= 63, */
++/* 	.report_desc		= { */
++/* 		0x05, 0x01,	/\* USAGE_PAGE (Generic Desktop)	          *\/ */
++/* 		0x09, 0x06,	/\* USAGE (Keyboard)                       *\/ */
++/* 		0xa1, 0x01,	/\* COLLECTION (Application)               *\/ */
++/* 		0x05, 0x07,	/\*   USAGE_PAGE (Keyboard)                *\/ */
++/* 		0x19, 0xe0,	/\*   USAGE_MINIMUM (Keyboard LeftControl) *\/ */
++/* 		0x29, 0xe7,	/\*   USAGE_MAXIMUM (Keyboard Right GUI)   *\/ */
++/* 		0x15, 0x00,	/\*   LOGICAL_MINIMUM (0)                  *\/ */
++/* 		0x25, 0x01,	/\*   LOGICAL_MAXIMUM (1)                  *\/ */
++/* 		0x75, 0x01,	/\*   REPORT_SIZE (1)                      *\/ */
++/* 		0x95, 0x08,	/\*   REPORT_COUNT (8)                     *\/ */
++/* 		0x81, 0x02,	/\*   INPUT (Data,Var,Abs)                 *\/ */
++/* 		0x95, 0x01,	/\*   REPORT_COUNT (1)                     *\/ */
++/* 		0x75, 0x08,	/\*   REPORT_SIZE (8)                      *\/ */
++/* 		0x81, 0x03,	/\*   INPUT (Cnst,Var,Abs)                 *\/ */
++/* 		0x95, 0x05,	/\*   REPORT_COUNT (5)                     *\/ */
++/* 		0x75, 0x01,	/\*   REPORT_SIZE (1)                      *\/ */
++/* 		0x05, 0x08,	/\*   USAGE_PAGE (LEDs)                    *\/ */
++/* 		0x19, 0x01,	/\*   USAGE_MINIMUM (Num Lock)             *\/ */
++/* 		0x29, 0x05,	/\*   USAGE_MAXIMUM (Kana)                 *\/ */
++/* 		0x91, 0x02,	/\*   OUTPUT (Data,Var,Abs)                *\/ */
++/* 		0x95, 0x01,	/\*   REPORT_COUNT (1)                     *\/ */
++/* 		0x75, 0x03,	/\*   REPORT_SIZE (3)                      *\/ */
++/* 		0x91, 0x03,	/\*   OUTPUT (Cnst,Var,Abs)                *\/ */
++/* 		0x95, 0x06,	/\*   REPORT_COUNT (6)                     *\/ */
++/* 		0x75, 0x08,	/\*   REPORT_SIZE (8)                      *\/ */
++/* 		0x15, 0x00,	/\*   LOGICAL_MINIMUM (0)                  *\/ */
++/* 		0x25, 0x65,	/\*   LOGICAL_MAXIMUM (101)                *\/ */
++/* 		0x05, 0x07,	/\*   USAGE_PAGE (Keyboard)                *\/ */
++/* 		0x19, 0x00,	/\*   USAGE_MINIMUM (Reserved)             *\/ */
++/* 		0x29, 0x65,	/\*   USAGE_MAXIMUM (Keyboard Application) *\/ */
++/* 		0x81, 0x00,	/\*   INPUT (Data,Ary,Abs)                 *\/ */
++/* 		0xc0		/\* END_COLLECTION                         *\/ */
++/* 	}, */
++/*      .chardev_name = "android_keyboard", */
++/* }; */
++
++/* static int */
++/* hidkeyboard_function_init(struct android_usb_function *f, */
++/* 		struct usb_composite_dev *cdev) */
++/* { */
++/*      return ghid_setup(); */
++/* } */
++
++/* static void hidkeyboard_function_cleanup(struct android_usb_function *f) */
++/* { */
++/*      ghid_cleanup(); */
++/* } */
++
++/* static int */
++/* hidkeyboard_function_bind_config(struct android_usb_function *f, */
++/* 		struct usb_configuration *c) */
++/* { */
++/*      int status; */
++     
++/*      status = hidg_bind_config(c, &keyboard_hid_data, hidg_online_count++); */
++/*      if(status) */
++/* 	  printk("<0> sunpeng  hidg bind config failed\n"); */
++     
++/*      return status; */
++/* } */
++
++/* void hidkeyboard_function_unbind_config(struct android_usb_function *f, */
++/* 				      struct usb_configuration *c) */
++/* { */
++/*      hidg_online_count--; */
++/* } */
++
++/* statib
++c struct android_usb_function hidkeyboard_function = { */
++/* 	.name		= "hid-keyboard", */
++/* 	.init		= hidkeyboard_function_init, */
++/* 	.cleanup	= hidkeyboard_function_cleanup, */
++/* 	.bind_config	= hidkeyboard_function_bind_config, */
++/* 	.unbind_config  = hidkeyboard_function_unbind_config, */
++/* }; */
++
++/*-----------------------------hid mouse-------------------------*/
++
++static struct hidg_func_descriptor mouse_hid_data = {
++	.subclass		= 1, /* Boot Interface Subclass */
++	.protocol		= 2, /* Mouse */
++	.report_length		= 7,//todo: larger or not, copy from a real mouse
++	.report_desc_length	= 52,
++	.report_desc		= {
++          //通用桌面设备
++	  0x05, 0x01,                    // USAGE_PAGE (Generic Desktop)
++	  //鼠标
++	  0x09, 0x02,                    // USAGE (Mouse)
++	  //集合
++	  0xa1, 0x01,                    // COLLECTION (Application)
++	  //指针设备
++	  0x09, 0x01,                    //   USAGE (Pointer)
++	  //集合
++	  0xa1, 0x00,                    //   COLLECTION (Physical)
++	  //按键
++	  0x05, 0x09,                    //     USAGE_PAGE (Button)
++	  //使用最小值1
++	  0x19, 0x01,                    //     USAGE_MINIMUM (Button 1)
++	  //使用最大值3。1表示左键，2表示右键，3表示中键
++	  0x29, 0x03,                    //     USAGE_MAXIMUM (Button 3)
++	  //逻辑最小值0
++	  0x15, 0x00,                    //     LOGICAL_MINIMUM (0)
++	  //逻辑最大值1
++	  0x25, 0x01,                    //     LOGICAL_MAXIMUM (1)
++	  //数量为3
++	  0x95, 0x03,                    //     REPORT_COUNT (3)
++	  //大小为1bit
++	  0x75, 0x01,                    //     REPORT_SIZE (1)
++	  //输入，变量，数值，绝对值
++	  //以上3个bit分别表示鼠标的三个按键情况，最低位（bit-0）为左键
++	  //bit-1为右键，bit-2为中键，按下时对应的位值为1，释放时对应的值为0
++	  0x81, 0x02,                    //     INPUT (Data,Var,Abs)
++	  //填充5个bit，补足一个字节
++	  0x95, 0x01,                    //     REPORT_COUNT (1)
++	  0x75, 0x05,                    //     REPORT_SIZE (5)
++	  0x81, 0x03,                    //     INPUT (Cnst,Var,Abs)
++	  //用途页为通用桌面
++	  0x05, 0x01,                    //     USAGE_PAGE (Generic Desktop)
++	  //用途为X
++	  0x09, 0x30,                    //     USAGE (X)
++	  //用途为Y
++	  0x09, 0x31,                    //     USAGE (Y)
++	  //用途为滚轮
++	  0x09, 0x38,                    //     USAGE (Wheel)
++	  //逻辑最小值为-127
++	  0x15, 0x81,                    //     LOGICAL_MINIMUM (-127)
++	  //逻辑最大值为+127
++	  0x25, 0x7f,                    //     LOGICAL_MAXIMUM (127)
++	  //大小为8个bits
++	  0x75, 0x08,                    //     REPORT_SIZE (8)
++	  //数量为3个，即分别代表x,y,滚轮
++	  0x95, 0x03,                    //     REPORT_COUNT (3)
++	  //输入，变量，值，相对值
++	  0x81, 0x06,                    //     INPUT (Data,Var,Rel)
++	  //关集合
++	  0xc0,                          //   END_COLLECTION
++	  0xc0                           // END_COLLECTION
++        },
++	.chardev_name = "android_mouse",
++};
++
++static int
++hidmouse_function_init(struct android_usb_function *f,
++		struct usb_composite_dev *cdev)
++{
++     return ghid_setup();
++}
++
++static void hidmouse_function_cleanup(struct android_usb_function *f)
++{
++     ghid_cleanup();
++}
++
++static int
++hidmouse_function_bind_config(struct android_usb_function *f,
++		struct usb_configuration *c)
++{
++     int status;
++     
++     status = hidg_bind_config(c, &mouse_hid_data, hidg_online_count++);
++     
++     return status;
++}
++
++void hidmouse_function_unbind_config(struct android_usb_function *f,
++				      struct usb_configuration *c)
++{
++     hidg_online_count--;
++}
++
++static struct android_usb_function hidmouse_function = {
++	.name		= "hid-mouse",
++	.init		= hidmouse_function_init,
++	.cleanup	= hidmouse_function_cleanup,
++	.bind_config	= hidmouse_function_bind_config,
++	.unbind_config  = hidmouse_function_unbind_config,
++};
++
+ 
+ /*-------------------------------------------------------------------------*/
+ /* Supported functions initialization */
+@@ -1892,6 +2081,8 @@ static struct android_usb_function *supported_functions[] = {
+ #ifdef CONFIG_USB_ANDROID_NCM
+ 	&ncm_function,
+ #endif
++	&hidmouse_function,
++//	&hidkeyboard_function,
+ 	NULL
+ };
+ 
+diff --git a/drivers/usb/gadget/f_hid.c b/drivers/usb/gadget/f_hid.c
+index b211342..7443100 100644
+--- a/drivers/usb/gadget/f_hid.c
++++ b/drivers/usb/gadget/f_hid.c
+@@ -21,8 +21,8 @@
+ #include <linux/usb/g_hid.h>
+ 
+ static int major, minors;
+-static struct class *hidg_class;
+-
++static struct class *hidg_class = NULL;
++static int hidg_online_count = 0;
+ /*-------------------------------------------------------------------------*/
+ /*                            HID gadget struct                            */
+ 
+@@ -47,6 +47,7 @@ struct f_hidg {
+ 	struct usb_request		*req;
+ 
+ 	int				minor;
++        char*                           chardev_name;
+ 	struct cdev			cdev;
+ 	struct usb_function		func;
+ 	struct usb_ep			*in_ep;
+@@ -448,7 +449,7 @@ const struct file_operations f_hidg_fops = {
+ 	.llseek		= noop_llseek,
+ };
+ 
+-static int __init hidg_bind(struct usb_configuration *c, struct usb_function *f)
++static int hidg_bind(struct usb_configuration *c, struct usb_function *f)
+ {
+ 	struct usb_ep		*ep;
+ 	struct f_hidg		*hidg = func_to_hidg(f);
+@@ -459,6 +460,7 @@ static int __init hidg_bind(struct usb_configuration *c, struct usb_function *f)
+ 	status = usb_interface_id(c, f);
+ 	if (status < 0)
+ 		goto fail;
++
+ 	hidg_interface_desc.bInterfaceNumber = status;
+ 
+ 
+@@ -467,6 +469,7 @@ static int __init hidg_bind(struct usb_configuration *c, struct usb_function *f)
+ 	ep = usb_ep_autoconfig(c->cdev->gadget, &hidg_fs_in_ep_desc);
+ 	if (!ep)
+ 		goto fail;
++
+ 	ep->driver_data = c->cdev;	/* claim */
+ 	hidg->in_ep = ep;
+ 
+@@ -517,7 +520,7 @@ static int __init hidg_bind(struct usb_configuration *c, struct usb_function *f)
+ 	if (status)
+ 		goto fail;
+ 
+-	device_create(hidg_class, NULL, dev, NULL, "%s%d", "hidg", hidg->minor);
++	device_create(hidg_class, NULL, dev, NULL, "%s%d", hidg->chardev_name, hidg->minor);
+ 
+ 	return 0;
+ 
+@@ -580,23 +583,14 @@ static struct usb_gadget_strings *ct_func_strings[] = {
+ /*-------------------------------------------------------------------------*/
+ /*                             usb_configuration                           */
+ 
+-int __init hidg_bind_config(struct usb_configuration *c,
++int hidg_bind_config(struct usb_configuration *c,
+ 			    struct hidg_func_descriptor *fdesc, int index)
+ {
+ 	struct f_hidg *hidg;
+ 	int status;
+ 
+ 	if (index >= minors)
+-		return -ENOENT;
+-
+-	/* maybe allocate device-global string IDs, and patch descriptors */
+-	if (ct_func_string_defs[CT_FUNC_HID_IDX].id == 0) {
+-		status = usb_string_id(c->cdev);
+-		if (status < 0)
+-			return status;
+-		ct_func_string_defs[CT_FUNC_HID_IDX].id = status;
+-		hidg_interface_desc.iInterface = status;
+-	}
++		return -ENOENT;	
+ 
+ 	/* allocate and initialize one new instance */
+ 	hidg = kzalloc(sizeof *hidg, GFP_KERNEL);
+@@ -604,6 +598,7 @@ int __init hidg_bind_config(struct usb_configuration *c,
+ 		return -ENOMEM;
+ 
+ 	hidg->minor = index;
++	hidg->chardev_name = fdesc->chardev_name;
+ 	hidg->bInterfaceSubClass = fdesc->subclass;
+ 	hidg->bInterfaceProtocol = fdesc->protocol;
+ 	hidg->report_length = fdesc->report_length;
+@@ -631,17 +626,24 @@ int __init hidg_bind_config(struct usb_configuration *c,
+ 	return status;
+ }
+ 
+-int __init ghid_setup(struct usb_gadget *g, int count)
++int  ghid_setup(void)
+ {
+ 	int status;
+ 	dev_t dev;
+-
+-	hidg_class = class_create(THIS_MODULE, "hidg");
+-
+-	status = alloc_chrdev_region(&dev, 0, count, "hidg");
+-	if (!status) {
+-		major = MAJOR(dev);
+-		minors = count;
++	int count = 2;
++	if(!hidg_class)
++	{
++	     hidg_class = class_create(THIS_MODULE, "hidg");
++
++	     status = alloc_chrdev_region(&dev, 0, count, "hidg");
++	     if (!status) {
++		  major = MAJOR(dev);
++		  minors = count;
++	     }
++	}
++	else 
++	{
++	     status = 0;
+ 	}
+ 
+ 	return status;
+@@ -649,6 +651,8 @@ int __init ghid_setup(struct usb_gadget *g, int count)
+ 
+ void ghid_cleanup(void)
+ {
++     if(!hidg_online_count)
++     {
+ 	if (major) {
+ 		unregister_chrdev_region(MKDEV(major, 0), minors);
+ 		major = minors = 0;
+@@ -656,4 +660,5 @@ void ghid_cleanup(void)
+ 
+ 	class_destroy(hidg_class);
+ 	hidg_class = NULL;
++     }
+ }
+diff --git a/include/linux/usb/g_hid.h b/include/linux/usb/g_hid.h
+index 50f5745..2a59cdf 100644
+--- a/include/linux/usb/g_hid.h
++++ b/include/linux/usb/g_hid.h
+@@ -24,6 +24,7 @@
+ struct hidg_func_descriptor {
+ 	unsigned char		subclass;
+ 	unsigned char		protocol;
++        char*                   chardev_name;
+ 	unsigned short		report_length;
+ 	unsigned short		report_desc_length;
+ 	unsigned char		report_desc[];
